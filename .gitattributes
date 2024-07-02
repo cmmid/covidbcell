@@ -1,0 +1,5 @@
+outputs/stanfit/* filter=lfs diff=lfs merge=lfs -text
+outputs/figs/bcell/age_rbd.RDS filter=lfs diff=lfs merge=lfs -text
+outputs/figs/bcell/age_s.RDS filter=lfs diff=lfs merge=lfs -text
+outputs/figs/bcell/time_s.RDS filter=lfs diff=lfs merge=lfs -text
+outputs/figs/bcell/time_rbd.RDS filter=lfs diff=lfs merge=lfs -text

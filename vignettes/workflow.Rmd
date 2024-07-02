@@ -1,0 +1,290 @@
+# Run the analysis in the paper
+
+This document describes the workflow to run the analysis in the paper. The analysis is divided into several steps, including data cleaning, model fitting, and posterior predictive checks. The analysis is performed in R and Stan. The code is available in the `R` folder. The Stan models are available in the `src` folder. The outputs are saved in the `outputs` folder. The figures are saved in the `outputs/figs` folder. 
+
+```{r}
+
+# Load the all the required functions for the analysis 
+source("R/main.r")
+
+## Clean the NIH data
+clean_nih_data("wu_s")
+clean_nih_data("wu_rbd")
+
+## Clean the SID data
+clean_sid_data( "wu_s")
+clean_sid_data( "wu_rbd")
+
+# Plot the cleaned data
+plot_data_clean()
+
+# Make table 1
+make_table1()
+
+# Make prosterior predicrive checks
+plot_prior_pred()
+create_find_cvalue()
+
+```
+
+# Run HMC sampler
+ 
+The following code runs the HMC sampler in Stan. The code is available in the `R` folder. The Stan models are available in the `src` folder. 
+
+```{r}
+
+# Run HMC sampler in stan
+run_sim <- function(name, model, data_list, folder_name) {
+    fit_ode_model <- model$sample(
+        data = data_list,    # named list of data
+        refresh = 100,
+        iter_warmup = 1000,          # number of warmup iterations per chain
+        iter_sampling = 1000,            # total number of iterations per chain
+        chains = 4,            # number of cores (could use one per chain)
+        parallel_chains = 4,
+        adapt_delta = 0.95,
+        max_treedepth = 10,
+        init = 0
+    )
+    fit_ode_model$save_object(file = here::here("outputs", "stanfit", paste0(name, ".RDS")))
+}
+
+# Working for NIH
+
+ode_model <- cmdstan_model(here::here("src", "cauchy_rk45_waneLLPC_ind.stan"), compile = TRUE)
+ode_model_m3_ind <- ode_model$compile(stanc_options = list("O1", "canonicalize"))
+
+data_list_nih_s <- readRDS(here::here("outputs", "data_clean", "nih_wu_s", "list_stan_data.RDS"))
+data_list_nih_rbd <- readRDS(here::here("outputs", "data_clean", "nih_wu_rbd", "list_stan_data.RDS"))
+
+run_sim("nih_vac_wu_s_i", ode_model_m3_ind, data_list_nih_s)
+run_sim("nih_vac_wu_rbd_i", ode_model_m3_ind, data_list_nih_rbd)
+
+```
+
+#  Inspect model fit
+ 
+The following code inspects the model fit for both the spike and RBD antigen. Main reason is to find the source of divergence. Plots are are in the `outputs/figs/diag` folder.
+
+```{r}
+
+# Inspect divergent transitions and treedepth
+
+source(here::here("R", "met_mcmc.R"))
+
+stanfit_name <- "nih_vac_wu_s_i"
+fit_model <- readRDS(file = here::here("outputs", "stanfit",  paste0(stanfit_name, ".RDS")) )
+  
+
+param_vec_A <- c("param1", "param3", "param4", "sigmaa1", "sigmaa3", "sigmaa4")
+param_vec_B <- c("param1", "param3", "param4", "sigmat1", "sigmat3", "sigmat4")
+param_vec_C <- c("param1", "param3", "param4", "sigmav1", "sigmav3", "sigmav4")
+param_vec_D <- c("param1", "param3", "param4", "sigmai1", "sigmai3", "sigmai4")
+
+run_sampler_diag(fit_model)
+plot_diag(fit_model, param_vec_A, "A")
+plot_diag(fit_model, param_vec_B, "B")
+plot_diag(fit_model, param_vec_C, "C")
+plot_diag(fit_model, param_vec_D, "D")
+
+
+```
+
+
+# Inspect convergence and autocorrelation
+  
+The following code inspects the convergence and autocorrelation of the model fit for both the spike and RBD antigen. Plots are are in the `outputs/figs/cc` folder.
+
+```{r}
+
+source(here::here("R", "met_mcmc.R"))
+
+stanfit_name <- "nih_vac_wu_rbd_i"
+fit_model <- readRDS(file = here::here("outputs", "stanfit",  paste0(stanfit_name, ".RDS")) )
+sampler_diagnostics <- fit_model$sampler_diagnostics()
+df_sampler_diagnostics <- as_draws_df(sampler_diagnostics) 
+
+run_sampler_diag(fit_model)
+
+run_cc_antigen( "nih_vac_wu_s_i", "s")
+run_cc_antigen( "nih_vac_wu_rbd_i", "rbd")
+
+```
+
+# Get posterior trajectories
+
+The following code gets the posterior trajectories for both the spike and RBD antigen. The code is available in the `R` folder. The Stan models are available in the `src` folder. The outputs are saved in the `outputs` folder.
+These can take a while to run! But you can plot the figures without running them. 
+
+```{r}
+source(here::here("R", "utils.R"))
+#source(here::here("R", ".R"))
+
+stanfit_name <- "nih_vac_wu_s_i"
+foldername <- "nih_wu_s"
+stanfit_s <- readRDS(file = here::here("outputs", "stanfit", paste0(stanfit_name, ".RDS")) )
+stanfit <- stanfit_s
+stanfit_name <- "nih_vac_wu_rbd_i"
+stanfit_rbd <- readRDS(file = here::here("outputs", "stanfit", paste0(stanfit_name, ".RDS")) )
+
+run_full_posterior_tracjectories(stanfit_s, "nih_wu_s")
+run_full_posterior_tracjectories(stanfit_rbd, "nih_wu_rbd")
+
+run_val_trajectories(stanfit_s, "sid_wu_s")
+run_val_trajectories(stanfit_rbd, "sid_wu_rbd")
+
+```
+
+# Plot the posterior trajectories of the calibration and training dataset
+
+The following code plots the posterior trajectories of the calibration and training dataset for both the spike and RBD antigen. 
+This is essentially Figure 1.
+
+```{r}
+
+source(here::here("R", "res_fit_cal.R"))
+source(here::here("R", "res_fit_val.R"))
+
+plot_cal_traj_pop()
+plot_cal_crps_ind()
+plot_cal_traj_ind()
+
+plot_val_traj_pop()
+plot_val_crps_ind()
+plot_val_traj_ind()
+
+```
+
+```{r}
+
+plot_posteriors(stanfit_s, "nih_wu_s")
+plot_marg_posteriors(stanfit_s, "nih_wu_s")
+plot_posteriors_decay(stanfit_s, "nih_wu_s")
+
+plot_posteriors(stanfit_rbd, "nih_wu_rbd")
+plot_marg_posteriors(stanfit_rbd, "nih_wu_rbd")
+plot_posteriors_decay(stanfit_rbd, "nih_wu_rbd")
+
+```
+
+```{r}
+
+plot_bcell(stanfit_s, "nih_wu_s")
+plot_bcell(stanfit_rbd, "nih_wu_rbd")
+
+# Stuff for manuscript 
+
+
+recode_expo <- c("2" = "ChAdOx1", "1" = "BNT162b2")
+
+relabel_model_state <- c("1" = "a1: Rate of B-cell proliferation",
+    "2" = "a2: Rate of derivation to plasmablasts", 
+    "3" = "a3: Rate of neutralising antibody production from plasmablasts", 
+    "4" = "a4: Rate of neutralising antibody production from plasma cells")
+comparison_t <- stanfit_rbd$draws(c("theta_t")) %>%
+    spread_draws(theta_t[i, v, s]) %>% 
+        mutate(s = recode(s, !!!relabel_model_state)) %>%
+        mutate(v = recode(v, !!!recode_expo)) %>%
+        filter(s != "a2: Rate of derivation to plasmablasts") %>% 
+        pivot_wider(names_from = s, values_from = theta_t) 
+
+comparison_t_mean <- comparison_t %>% group_by(i) %>% summarise(
+        `a1: Rate of B-cell proliferation` = mean_qi(`a1: Rate of B-cell proliferation`),
+        `a3: Rate of neutralising antibody production from plasmablasts` = mean_qi(`a3: Rate of neutralising antibody production from plasmablasts`),
+        `a4: Rate of neutralising antibody production from plasma cells` = mean_qi(`a4: Rate of neutralising antibody production from plasma cells`))#%>%
+      #  mutate(i = recode(i, "1" = "<28 days", "2" = "\u2265 28 days")) 
+
+
+
+```
+
+# Plot the predicted antibody kinetics
+
+```{r}
+
+plot_ab_kinetics(stanfit_s, "nih_wu_s")
+plot_ab_kinetics(stanfit_rbd, "nih_wu_rbd")
+
+plot_abkin_tt()
+
+```
+
+
+```{r}
+
+
+relabel_model_vaccine <- c("2" = "ChAdOx1", "1" = "BNT162b2")
+relabel_l_s <-c("1" = "Memory B-cell conc.",
+    "2" = "Plasmablast conc.", 
+    "3" = "sVNT from plasmablasts", "4" = "GC", "5" = "PB", 
+    "6" = "sVNT from plasma cells", "tot" = "sVNT total")
+
+full_dynamics_vac_2_wu_s <- stanfit_s$draws(c("y_full_vac")) %>%
+        spread_draws(y_full_vac[i, t, s])
+full_dynamics_vac_2a_wu_s <- full_dynamics_vac_2_wu_s %>% filter(s %in% c(1, 2, 3, 6)) %>%
+    pivot_wider(names_from = "s", values_from = "y_full_vac") %>%
+    mutate(tot = `3` + `6`, prop = `3` / (`3` + `6`)) %>% 
+    pivot_longer(`1`:`prop`, names_to = "s", values_to = "y_full_vac") %>%
+    group_by(i, t, s) %>%
+    mean_qi(y_full_vac) 
+
+tt_df <- full_dynamics_vac_2a_wu_s %>% mutate(s = recode(s, !!!relabel_l_s)) %>%
+    filter(s == "prop") %>%
+    mutate(vax_type = recode(i, !!!relabel_model_vaccine)) %>% drop_na %>% filter(y_full_vac < 0.5) %>% 
+    group_by(vax_type) %>% filter(t == min(t)) 
+
+p1 <- full_dynamics_vac_2a_wu_s %>% mutate(s = recode(s, !!!relabel_l_s)) %>%
+    filter(s != "prop") %>%
+    filter(!s %in% c("Titre (short-lived) (log)", "Titre (long-lived) (log)")) %>% 
+    mutate(vax_type = recode(i, !!!relabel_model_vaccine)) %>% drop_na %>% 
+    filter(s %in% c(
+        "sVNT from plasmablasts",
+        "sVNT from plasma cells", 
+        "sVNT total")) 
+
+p1 %>% filter(s == "sVNT total", vax_type == "ChAdOx1") %>% filter(y_full_vac == max(y_full_vac))
+p1 %>% filter(s == "sVNT total", vax_type == "ChAdOx1") %>% filter(t == 250)
+
+p1 %>% filter(s == "sVNT total", vax_type == "ChAdOx1") %>% filter(y_full_vac < log10(10))
+
+
+p1 %>% filter(s == "sVNT total", vax_type == "BNT162b2") %>% filter(y_full_vac == max(y_full_vac))
+p1 %>% filter(s == "sVNT total", vax_type == "BNT162b2") %>% filter(t == 250)
+p1 %>% filter(s == "sVNT total", vax_type == "BNT162b2") %>% filter(y_full_vac < log10(10))
+
+df_uncert_all_wu_t <- clean_fig4_alt(stanfit_s, "nih_wu_s")
+df_uncert_all_wu_t_2 <- df_uncert_all_wu_t %>% mutate(v = recode(v, "2" = "ChAdOx1", "1" = "BNT162b2")) 
+p  <- ggplot(df_uncert_all_wu_t_2, aes(time)) + stat_ecdf() + facet_grid(vars(v))
+pg <- ggplot_build(p)$data[[1]] %>% rename(v = PANEL) %>% filter(x >= 0, x < 365) %>%
+    select(y, x, v) %>% mutate(y = 1-y) %>%  mutate(v = recode(v, "2" = "ChAdOx1", "1" = "BNT162b2")) 
+to_add_max <- pg %>% group_by(v) %>% summarise(y = max(y)) %>% mutate(x = 0)
+to_add_min <- pg %>% group_by(v) %>% summarise(y = min(y)) %>% mutate(x = 365)
+pg <- bind_rows(pg, to_add_min) %>% bind_rows(to_add_max)
+pg %>% filter(v == "BNT162b2") %>% arrange(y)
+pg %>% filter(v == "ChAdOx1") %>% arrange(y)
+
+df_uncert_all_wu_t <- clean_fig4_alt_time(stanfit_s, "nih_wu_s")
+df_uncert_all_wu_t_2 <- df_uncert_all_wu_t %>% convert_to_data_time
+df_uncert_all_wu_t_2 %>% filter(v == "BNT162b2", time_d1 == "<28 days") %>% arrange(y)
+df_uncert_all_wu_t_2 %>% filter(v == "BNT162b2", time_d1 == ">= 28 days") %>% arrange(y)
+
+df_uncert_all_wu_t_2 %>% filter(v == "ChAdOx1", time_d1 == "<28 days") %>% arrange(y)
+df_uncert_all_wu_t_2 %>% filter(v == "ChAdOx1", time_d1 == ">= 28 days") %>% arrange(y)
+
+
+```
+
+
+# Plot/calcualte the predictive power on validation data
+
+```{r}
+
+compare_cprs_antibodies( stanfit_s, "sid_wu_s") 
+compare_cprs_antibodies( stanfit_rbd,  "sid_wu_rbd") 
+
+prediction_assess(stanfit_s, "sid_wu_s")
+prediction_assess(stanfit_rbd, "sid_wu_rbd")
+
+prediction_assess_compare()
+
+```
